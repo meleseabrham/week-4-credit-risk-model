@@ -1,0 +1,7 @@
+# Project dependencies
+pandas
+numpy
+scikit-learn
+fastapi
+uvicorn
+pydantic
