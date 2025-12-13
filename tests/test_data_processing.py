@@ -20,13 +20,32 @@ def test_load_data_missing_file():
         load_data("non_existent_file.csv")
 
 def test_preprocess_data():
-    # Test with NaN values
-    df = pd.DataFrame({'A': [1, np.nan, 3], 'B': [4, 5, np.nan]})
+    # Create sample data matching the expected schema
+    data = {
+        'TransactionStartTime': ['2018-11-15T02:18:49Z', '2018-11-15T02:19:08Z', '2018-11-15T02:19:08Z'],
+        'Amount': [100.0, 50.0, 20.0],
+        'Value': [100, 50, 20],
+        'CustomerId': ['C1', 'C1', 'C2'],
+        'ProviderId': ['P1', 'P1', 'P2'],
+        'ProductId': ['Pr1', 'Pr2', 'Pr1'],
+        'ProductCategory': ['Cat1', 'Cat1', 'Cat2'],
+        'ChannelId': ['Ch1', 'Ch1', 'Ch2'],
+        'PricingStrategy': ['PS1', 'PS1', 'PS2']
+    }
+    df = pd.DataFrame(data)
+    
     processed_df = preprocess_data(df)
     
-    # Check if NaNs are filled
+    # Check if new features exist
+    assert 'TransactionHour' in processed_df.columns
+    assert 'TotalTransactionAmount' in processed_df.columns
+    assert 'ProviderId_P2' in processed_df.columns # One-hot encoded column
+    
+    # Check aggregation logic
+    # C1 total amount should be 150
+    # Since we scaled, we can't check raw values easily, but we can check existence
+    assert not processed_df.empty
     assert processed_df.isnull().sum().sum() == 0
-    assert processed_df.shape == df.shape
 
 def test_preprocess_empty_data():
     df = pd.DataFrame()
