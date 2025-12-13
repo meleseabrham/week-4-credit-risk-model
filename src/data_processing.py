@@ -171,7 +171,7 @@ class AggregateFeatureExtractor(BaseEstimator, TransformerMixin):
 
 # ... (get_data_processing_pipeline remains same) ...
 
-def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
+def preprocess_data(df: pd.DataFrame, is_training: bool = True) -> pd.DataFrame:
     """
     Full preprocessing function executing the steps.
     """
@@ -189,14 +189,13 @@ def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
     time_extractor = TimeSeriesFeatureExtractor()
     df_extracted = time_extractor.transform(df_extracted)
 
-    # 2. Risk Label Assignment (Task 4)
-    # This must happen BEFORE encoding/scaling if we want to use the features raw, 
-    # but the class does its own scaling internally.
-    # We apply it here to create the target variable.
-    risk_assigner = RiskLabelAssigner()
-    df_extracted = risk_assigner.transform(df_extracted)
-    
-    logger.info("Risk Label Assignment completed.")
+    # 2. Risk Label Assignment (Task 4) - ONLY DURING TRAINING
+    if is_training:
+        risk_assigner = RiskLabelAssigner()
+        df_extracted = risk_assigner.transform(df_extracted)
+        logger.info("Risk Label Assignment completed.")
+    else:
+        logger.info("Skipping Risk Label Assignment (Inference Mode).")
 
     # 3. Define column groups (Post-extraction)
     numerical_cols = ['Amount', 'Value', 'TotalTransactionAmount', 'AvgTransactionAmount', 
