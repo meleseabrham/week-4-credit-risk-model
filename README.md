@@ -29,3 +29,16 @@ In a regulated financial context, the choice between simple and complex models i
 
 **Decision:** We will likely aim for a balance—using Gradient Boosting to establish a performance benchmark, but potentially prioritizing a simpler, scorecard-compatible model for the final deployment if regulatory constraints are strict.
 
+## Exploratory Data Analysis Findings
+
+### Data Structure & Quality
+- **Dataset**: 95,662 transactions with 16 features.
+- **Completeness**: The dataset is **100% complete** (no missing values), which significantly simplifies the data cleaning pipeline.
+- **Class Imbalance**: The target variable `FraudResult` is extremely imbalanced, with only **~0.2%** of transactions marked as fraud. This necessitates advanced handling techniques (SMOTE, Class Weights, or Anomaly Detection) during modeling.
+
+### Key Insights & Patterns
+1. **Strong Financial Correlation**: `Value` (0.57) and `Amount` (0.56) have the highest positive correlation with `FraudResult`. Larger transactions are disproportionately more likely to be fraudulent/risky.
+2. **Outliers**: The `Value` feature shows significant outliers for the positive class (Fraud), differentiating them from normal traffic.
+3. **Categorical Complexity**: Features like `ProviderId`, `ProductId`, and `ChannelId` have high cardinality and distinct distributions, requiring careful encoding (One-Hot or Label Encoding) to be useful for the model.
+
+
