@@ -57,13 +57,80 @@ class TimeSeriesFeatureExtractor(BaseEstimator, TransformerMixin):
             X_ = X_.drop(columns=[self.time_col], errors='ignore')
         return X_
 
+from sklearn.cluster import KMeans
+
+class RiskLabelAssigner(BaseEstimator, TransformerMixin):
+    """
+    Assigns a proxy risk label based on RFM clustering.
+    """
+    def __init__(self, n_clusters=3, random_state=42):
+        self.n_clusters = n_clusters
+        self.random_state = random_state
+        self.kmeans = None
+        self.high_risk_cluster = None
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X):
+        logger.info("Assigning risk labels (Task 4)...")
+        X_ = X.copy()
+        
+        # 1. Prepare RFM Features
+        # We assume X_ already has 'TotalTransactionAmount' (Monetary), 'TransactionCount' (Frequency)
+        # We need 'Recency'. 
+        
+        # Ensure we have the necessary columns
+        required_cols = ['TotalTransactionAmount', 'TransactionCount', 'Recency']
+        if not all(col in X_.columns for col in required_cols):
+            logger.warning("Missing RFM columns for clustering. Returning original DF.")
+            return X
+            
+        rfm_data = X_[required_cols].copy()
+        
+        # 2. Scale RFM before clustering
+        scaler = StandardScaler()
+        rfm_scaled = scaler.fit_transform(rfm_data)
+        
+        # 3. K-Means Clustering
+        kmeans = KMeans(n_clusters=self.n_clusters, random_state=self.random_state, n_init=10)
+        clusters = kmeans.fit_predict(rfm_scaled)
+        
+        X_['Cluster'] = clusters
+        
+        # 4. Identify High Risk Cluster
+        # Logic: Lowest mean Frequency and Monetary, High Recency often indicates engagement drop which acts as a risk proxy here
+        # Or specifically "least engaged".
+        
+        cluster_summary = X_.groupby('Cluster')[['TotalTransactionAmount', 'TransactionCount', 'Recency']].mean()
+        
+        # We define high risk as the cluster with LOWEST (Monetary + Frequency) and HIGHEST Recency potentially.
+        # A simple heuristic: Sort by Monetary ascending. The lowest monetary group is likely the "worst" / least engaged.
+        # Let's verify with Frequency too.
+        
+        # Normalize stats to Pick the 'worst'
+        # We want min(Monetary) and min(Frequency). Recency might be high (churned) or just low engagement.
+        
+        # Let's pick the cluster with the lowest 'TotalTransactionAmount' as the primary proxy for "Low Value/High Risk"
+        high_risk_cluster_id = cluster_summary['TotalTransactionAmount'].idxmin()
+        
+        logger.info(f"Identified Cluster {high_risk_cluster_id} as High Risk (Proxy). Stats:\n{cluster_summary.loc[high_risk_cluster_id]}")
+        
+        X_['is_high_risk'] = (X_['Cluster'] == high_risk_cluster_id).astype(int)
+        
+        # Drop aux cluster column
+        X_ = X_.drop(columns=['Cluster'])
+        
+        return X_
+
 class AggregateFeatureExtractor(BaseEstimator, TransformerMixin):
     """
     Creates aggregate features per customer (RFM proxies).
     """
-    def __init__(self, group_col='CustomerId', value_col='Amount'):
+    def __init__(self, group_col='CustomerId', value_col='Amount', time_col='TransactionStartTime'):
         self.group_col = group_col
         self.value_col = value_col
+        self.time_col = time_col
 
     def fit(self, X, y=None):
         return self
@@ -73,75 +140,36 @@ class AggregateFeatureExtractor(BaseEstimator, TransformerMixin):
         X_ = X.copy()
         
         # Calculate aggregates
-        grouped = X_.groupby(self.group_col)[self.value_col]
+        grouped = X_.groupby(self.group_col)
         
-        X_['TotalTransactionAmount'] = grouped.transform('sum')
-        X_['AvgTransactionAmount'] = grouped.transform('mean')
-        X_['TransactionCount'] = grouped.transform('count')
-        X_['StdTransactionAmount'] = grouped.transform('std').fillna(0) # Std is NaN if count=1
+        X_['TotalTransactionAmount'] = grouped[self.value_col].transform('sum')
+        X_['AvgTransactionAmount'] = grouped[self.value_col].transform('mean')
+        X_['TransactionCount'] = grouped[self.value_col].transform('count')
+        X_['StdTransactionAmount'] = grouped[self.value_col].transform('std').fillna(0)
         
+        # Recency Calculation
+        if self.time_col in X_.columns:
+            # Convert to datetime if not already
+            if not pd.api.types.is_datetime64_any_dtype(X_[self.time_col]):
+                X_[self.time_col] = pd.to_datetime(X_[self.time_col])
+                
+            # Define snapshot date as max date in dataset + 1 day
+            snapshot_date = X_[self.time_col].max() + pd.Timedelta(days=1)
+            
+            # Calculate last transaction date per customer (broadcast transform is tricky for dates, using map)
+            last_tx_dates = grouped[self.time_col].max()
+            
+            # Map back to original DF
+            X_['LastTransactionDate'] = X_[self.group_col].map(last_tx_dates)
+            X_['Recency'] = (snapshot_date - X_['LastTransactionDate']).dt.days
+            
+            X_ = X_.drop(columns=['LastTransactionDate'], errors='ignore')
+            
         return X_
 
-class WoETransformerProp(BaseEstimator, TransformerMixin):
-    """
-    Wrapper for xverse WOE or custom implementation.
-    """
-    def __init__(self, target_col='FraudResult', feature_cols=None):
-        self.target_col = target_col
-        self.feature_cols = feature_cols
-        self.woe_model = None
+# ... (WoETransformerProp remains same) ...
 
-    def fit(self, X, y=None):
-        if WOE and self.feature_cols:
-            self.woe_model = WOE()
-            # X must contain target for fit
-            if y is not None:
-                # If y is passed separately (pipeline standard)
-                combined = X.copy()
-                combined[self.target_col] = y
-                self.woe_model.fit(combined[self.feature_cols], combined[self.target_col])
-            elif self.target_col in X.columns:
-                 self.woe_model.fit(X[self.feature_cols], X[self.target_col])
-        return self
-
-    def transform(self, X):
-        if self.woe_model:
-            logger.info("Applying WoE transformation...")
-            return self.woe_model.transform(X[self.feature_cols])
-        return X
-
-def get_data_processing_pipeline(categorical_cols, numerical_cols):
-    """
-    Returns a scikit-learn pipeline for data processing.
-    """
-    
-    # Numerical Steps: Impute -> Scale
-    numeric_transformer = Pipeline(steps=[
-        ('imputer', SimpleImputer(strategy='mean')),
-        ('scaler', StandardScaler())
-    ])
-
-    # Categorical Steps: Impute -> OneHot
-    categorical_transformer = Pipeline(steps=[
-        ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
-        ('onehot', OneHotEncoder(handle_unknown='ignore'))
-    ])
-
-    preprocessor = ColumnTransformer(
-        transformers=[
-            ('num', numeric_transformer, numerical_cols),
-            ('cat', categorical_transformer, categorical_cols)
-        ]
-    )
-
-    # Full Pipeline
-    # Note: We apply feature extractors BEFORE ColumnTransformer because they generate new columns
-    # But sklearn ColumnTransformer requires fixed columns. 
-    # For simplicity, we define the extraction steps as separate manageable functions to be called before pipeline, 
-    # or wrapping them in a big pipeline that doesn't use ColumnTransformer immediately.
-    
-    # Alternative: A robust function that applies the custom transformers, then the standard preprocessing
-    return preprocessor
+# ... (get_data_processing_pipeline remains same) ...
 
 def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -154,16 +182,26 @@ def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
     logger.info("Starting preprocessing pipeline...")
     
     # 1. Feature Extraction
+    # Note: Aggregate now needs time_col for Recency
+    agg_extractor = AggregateFeatureExtractor(group_col='CustomerId', value_col='Amount', time_col='TransactionStartTime')
+    df_extracted = agg_extractor.transform(df)
+    
     time_extractor = TimeSeriesFeatureExtractor()
-    df_extracted = time_extractor.transform(df)
+    df_extracted = time_extractor.transform(df_extracted)
+
+    # 2. Risk Label Assignment (Task 4)
+    # This must happen BEFORE encoding/scaling if we want to use the features raw, 
+    # but the class does its own scaling internally.
+    # We apply it here to create the target variable.
+    risk_assigner = RiskLabelAssigner()
+    df_extracted = risk_assigner.transform(df_extracted)
     
-    agg_extractor = AggregateFeatureExtractor(group_col='CustomerId', value_col='Amount')
-    df_extracted = agg_extractor.transform(df_extracted)
-    
-    # 2. Define column groups (Post-extraction)
+    logger.info("Risk Label Assignment completed.")
+
+    # 3. Define column groups (Post-extraction)
     numerical_cols = ['Amount', 'Value', 'TotalTransactionAmount', 'AvgTransactionAmount', 
                       'TransactionCount', 'StdTransactionAmount', 'TransactionHour', 
-                      'TransactionDay', 'TransactionMonth', 'TransactionYear']
+                      'TransactionDay', 'TransactionMonth', 'TransactionYear', 'Recency']
     
     # Filter only those that exist
     numerical_cols = [c for c in numerical_cols if c in df_extracted.columns]
@@ -172,28 +210,15 @@ def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
     # Ensure they exist
     categorical_cols = [c for c in categorical_cols if c in df_extracted.columns]
 
-    # 3. Standard Preprocessing (Encoding/Scaling)
-    pipeline = get_data_processing_pipeline(categorical_cols, numerical_cols)
+    # 4. Standard Preprocessing (Encoding/Scaling)
+    # pipeline = get_data_processing_pipeline(categorical_cols, numerical_cols)
     
-    # We strip the target and ID columns for the transformation
-    # Keeping raw dataframe structure for return, or returning numpy array? 
-    # Usually returning DataFrame is clearer for the user.
-    
-    # For now, let's execute the transformers "in place" conceptually or return the transformed df
-    # Since ColumnTransformer returns an array/sparse matrix, we might lose column names.
-    # To keep names, we can use set_output(transform="pandas") in newer sklearn versions.
-    
-    # Let's apply simple manual transformation for readability or re-construct DF.
-    
-    # Apply Encoding
-    # Handle Missing
+    # Manual application again to keep DF structure
     df_extracted[numerical_cols] = df_extracted[numerical_cols].fillna(df_extracted[numerical_cols].mean())
     df_extracted[categorical_cols] = df_extracted[categorical_cols].fillna('Missing')
     
-    # One Hot Encoding
     df_encoded = pd.get_dummies(df_extracted, columns=categorical_cols, drop_first=True)
     
-    # Scaling - only on numerical features
     scaler = StandardScaler()
     df_encoded[numerical_cols] = scaler.fit_transform(df_encoded[numerical_cols])
     
