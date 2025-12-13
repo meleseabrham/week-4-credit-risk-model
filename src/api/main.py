@@ -43,7 +43,7 @@ def predict(request: CreditRiskRequest):
 
         # Preprocess
         # Note: preprocess_data expects a DF with specific columns.
-        preprocess_data(df)
+        preprocess_data(df, is_training=False)
 
         # DUMMY LOGIC FOR DEMO until Model Registry is live
         prob = 0.45
