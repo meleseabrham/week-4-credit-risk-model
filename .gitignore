@@ -16,6 +16,7 @@ ENV/
 # VS Code
 .vscode/
 
+
 # Data
 data/*
 !data/raw/
@@ -24,5 +25,12 @@ data/raw/*
 !data/raw/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
+
+# Models & MLflow
+mlruns/
+mlflow.db
+*.pkl
+models/
+
 
 
