@@ -68,6 +68,32 @@ def test_risk_label_logic():
     # We just check the column creation for unit test robustness, validating logic is harder without integration test.
     assert labeled_df.iloc[2]['is_high_risk'] == 1 or labeled_df['is_high_risk'].nunique() > 0
 
+def test_time_series_extractor():
+    from src.data_processing import TimeSeriesFeatureExtractor
+    df = pd.DataFrame({'TransactionStartTime': ['2023-01-01T12:00:00Z']})
+    extractor = TimeSeriesFeatureExtractor()
+    df_trans = extractor.transform(df)
+    
+    assert 'TransactionHour' in df_trans.columns
+    assert df_trans['TransactionHour'][0] == 12
+    assert df_trans['TransactionMonth'][0] == 1
+
+def test_aggregate_extractor():
+    from src.data_processing import AggregateFeatureExtractor
+    df = pd.DataFrame({
+        'CustomerId': ['C1', 'C1', 'C2'],
+        'Amount': [100, 200, 50],
+        # We need time col for Recency now since we updated the class
+        'TransactionStartTime': pd.to_datetime(['2023-01-01', '2023-01-02', '2023-01-03'])
+    })
+    extractor = AggregateFeatureExtractor(group_col='CustomerId', value_col='Amount', time_col='TransactionStartTime')
+    df_trans = extractor.transform(df)
+    
+    # C1 total should be 300
+    assert df_trans[df_trans['CustomerId']=='C1']['TotalTransactionAmount'].iloc[0] == 300
+    # C2 total should be 50
+    assert df_trans[df_trans['CustomerId']=='C2']['TotalTransactionAmount'].iloc[0] == 50
+
 def test_preprocess_empty_data():
     df = pd.DataFrame()
     processed_df = preprocess_data(df)
