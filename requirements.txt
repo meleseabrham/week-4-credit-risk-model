@@ -7,5 +7,7 @@ uvicorn
 pydantic
 xverse
 mlflow
+flake8
+
 
 

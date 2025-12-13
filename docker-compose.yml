@@ -6,4 +6,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./src:/app/src
+      - .:/app
+    environment:
+      - MLFLOW_TRACKING_URI=file:/app/mlruns
+    command: uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
