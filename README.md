@@ -1,44 +1,127 @@
-# Credit Risk Model
+# Credit Risk Scoring Model
 
-Project for credit risk modeling.
+An end-to-end Machine Learning project to assess creditworthiness using transaction data. This system utilizes a proxy target variable derived from RFM (Recency, Frequency, Monetary) analysis to predict the probability of default/high risk.
 
-## Structure
-- `data/`: Raw and processed data
-- `notebooks/`: Jupyter notebooks for EDA
-- `src/`: Source code for data processing, training, and inference
-- `tests/`: Unit tests
+## 🚀 Project Overview
+**Bati Bank** has partnered with an eCommerce platform to enable a Buy-Now-Pay-Later service. This project builds a Credit Scoring Model to estimate the likelihood of a customer defaulting.
 
-## Credit Scoring Business Understanding
+**Key Components:**
+*   **Feature Engineering**: Custom transformers for Aggregate, Time-Series, WoE, and RFM features.
+*   **Target Engineering**: K-Means clustering on RFM metrics to label users as High/Low Risk.
+*   **Model Training**: scikit-learn pipeline (Logistic Regression/Random Forest) with **MLflow** for experiment tracking.
+*   **Deployment**: **FastAPI** service for real-time inference.
+*   **User Interface**: **Streamlit** dashboard for interactive risk assessment.
+*   **Infrastructure**: Fully containerized with **Docker** & **Docker Compose**.
+*   **CI/CD**: Automatic linting and testing via GitHub Actions.
 
-### Basel II Accord and Model Interpretability
-The Basel II Capital Accord emphasizes rigorous risk measurement to determine the minimum capital requirements for financial institutions. It enables banks to use their own internal estimates of risk components—Probability of Default (PD), Loss Given Default (LGD), and Exposure at Default (EAD)—provided these systems are validated, transparent, and auditable. This regulatory framework necessitates models that are not only accurate but also **interpretable**. We must be able to explain *why* a customer was assigned a specific risk score to regulators and internal auditors. A "black box" model, no matter how accurate, struggles to meet these compliance standards because it lacks the traceability required to justify capital allocation decisions.
+---
 
-### The Need for Proxy Variables and Associated Risks
-In this project, we lack a direct "default" label (historical data on who failed to pay back a loan). Therefore, we must engineer a **proxy variable** using behavioral data, specifically Recency, Frequency, and Monetary (RFM) patterns, to categorize users as "high risk" (bad) or "low risk" (good).
-**Why:** We assume that stable, frequent, and high-value transactional behavior correlates with financial stability and willingness to repay.
-**Risks:** The primary risk is **misclassification bias**. A customer with low transaction volume on our platform might simply prefer cash or other platforms, not necessarily be a credit risk. Conversely, a high-volume user might be over-leveraged. If our proxy is flawed, the model will learn to predict the *proxy*, not actual creditworthiness, leading to bad loans (financial loss) or rejected good customers (lost revenue).
+## 📂 Project Structure
+```
+credit-risk-model/
+├── .github/workflows/ # CI/CD configurations
+├── data/              # Raw and processed datasets (git-ignored)
+├── notebooks/         # Jupyter notebooks for EDA and prototyping
+├── src/
+│   ├── api/           # FastAPI application
+│   ├── dashboard/     # Streamlit UI
+│   ├── data_processing.py # Feature engineering pipeline
+│   ├── train.py       # Training script with MLflow
+│   └── ...
+├── tests/             # Unit tests (pytest)
+├── Dockerfile         # API image definition
+├── Dockerfile.streamlit # Dashboard image definition
+├── docker-compose.yml # Service orchestration
+└── requirements.txt   # Python dependencies
+```
 
-### Model Selection Trade-offs: Logistic Regression vs. Gradient Boosting
-In a regulated financial context, the choice between simple and complex models is a critical trade-off:
+---
 
-| Feature | Logistic Regression (with WoE) | Gradient Boosting (e.g., XGBoost/CatBoost) |
-| :--- | :--- | :--- |
-| **Interpretability** | **High**. Coefficients directly translate to Odds Ratios. Easy to convert into a traditional Scorecard (points system). | **Low**. "Black box" nature requires secondary explainability tools (SHAP, LIME) to understand feature impact. |
-| **Performance** | Moderate. Assumes linear relationships (unless transformed). | **High**. Captures complex non-linear patterns and interactions automatically. |
-| **Regulatory Fit** | **Excellent**. The industry standard for decades. Easy to audit and justify. | **Challenging**. Requires rigorous validation and robust explainability documentation to satisfy regulators. |
+## 🛠️ Setup & Installation
 
-**Decision:** We will likely aim for a balance—using Gradient Boosting to establish a performance benchmark, but potentially prioritizing a simpler, scorecard-compatible model for the final deployment if regulatory constraints are strict.
+### Option A: Running with Docker (Recommended)
+You can bring up the entire stack (API + Dashboard + MLflow Tracking) with a single command.
 
-## Exploratory Data Analysis Findings
+1.  **Clone the repository**:
+    ```bash
+    git clone https://github.com/meleseabrham/week-4-credit-risk-model.git
+    cd week-4-credit-risk-model
+    ```
+2.  **Build and Run**:
+    ```bash
+    docker-compose up --build
+    ```
+3.  **Access Services**:
+    *   **Dashboard (UI)**: [http://localhost:8501](http://localhost:8501)
+    *   **API Documentation**: [http://localhost:8000/docs](http://localhost:8000/docs)
+    *   **MLflow UI** (if configured locally): Check logs for tracking URI.
 
-### Data Structure & Quality
-- **Dataset**: 95,662 transactions with 16 features.
-- **Completeness**: The dataset is **100% complete** (no missing values), which significantly simplifies the data cleaning pipeline.
-- **Class Imbalance**: The target variable `FraudResult` is extremely imbalanced, with only **~0.2%** of transactions marked as fraud. This necessitates advanced handling techniques (SMOTE, Class Weights, or Anomaly Detection) during modeling.
+### Option B: Local Development
+1.  **Create a virtual environment**:
+    ```bash
+    python -m venv .venv
+    source .venv/bin/activate  # Windows: .venv\Scripts\activate
+    ```
+2.  **Install dependencies**:
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-### Key Insights & Patterns
-1. **Strong Financial Correlation**: `Value` (0.57) and `Amount` (0.56) have the highest positive correlation with `FraudResult`. Larger transactions are disproportionately more likely to be fraudulent/risky.
-2. **Outliers**: The `Value` feature shows significant outliers for the positive class (Fraud), differentiating them from normal traffic.
-3. **Categorical Complexity**: Features like `ProviderId`, `ProductId`, and `ChannelId` have high cardinality and distinct distributions, requiring careful encoding (One-Hot or Label Encoding) to be useful for the model.
+---
+
+## 🏃‍♂️ How to Run
+
+### 1. Train the Model
+The training script loads data, preprocesses it, trains models, and logs results to MLflow.
+```bash
+python src/train.py
+```
+*Artifacts (models/metrics) will be saved to `./mlruns` and `./models`.*
+
+### 2. Run the API API
+```bash
+uvicorn src.api.main:app --reload
+```
+Test prediction:
+```bash
+curl -X POST "http://localhost:8000/predict" -H "Content-Type: application/json" -d '{"Amount": 1000, "Value": 1000, "TransactionStartTime": "2023-01-01T12:00:00Z", "CustomerId": "C1", "ProviderId": "P1", "ProductId": "Pr1", "ProductCategory": "Cat1", "ChannelId": "Web", "PricingStrategy": "PlanA"}'
+```
+
+### 3. Run the Dashboard
+```bash
+streamlit run src/dashboard/app.py
+```
+
+---
+
+## 🧠 Business Understanding & Methodology
+
+### Basel II Accord Significance
+The Basel II Capital Accord mandates rigorous risk measurement. Our model focuses on **interpretability** and consistency to ensure that risk scores are auditable and justifiable for capital allocation decisions.
+
+### Proxy Target Variable (RFM)
+Since no direct "default" label exists, we engineered a proxy:
+1.  **RFM Calculation**: Computed Recency, Frequency, and Monetary value for each user.
+2.  **Clustering**: Used K-Means to identify a "High Risk" cluster (typically low frequency/low monetary value groups).
+3.  **Labeling**: Users in this cluster are flagged as `is_high_risk = 1`.
+
+### Model Trade-offs
+*   **Logistic Regression**: Selected for its **high interpretability** and regulatory friendliness (Scorecards).
+*   **Random Forest / GBM**: Used as a performance benchmark to capture non-linear complex patterns.
+
+---
+
+## 📊 Exploratory Data Analysis Insights
+*   **Data Completeness**: Dataset is 100% complete.
+*   **Class Imbalance**: Fraud/Risk events are rare (~0.2% for fraud), necessitating robust evaluation metrics like **ROC-AUC** and **F1-Score** rather than simple Accuracy.
+*   **Key Drivers**: Transaction `Value` and `Amount` are the strongest predictors of risk/fraud status.
+
+---
+
+## ✅ CI/CD Pipeline
+Every push to `main` triggers a GitHub Actions workflow that:
+1.  **Lints** the code with `flake8`.
+2.  **Tests** data processing logic with `pytest`.
+Builds fail if code quality standards are not met.
 
 

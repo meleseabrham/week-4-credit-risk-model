@@ -8,6 +8,9 @@ pydantic
 xverse
 mlflow
 flake8
+streamlit
+requests
+
 
 
 
