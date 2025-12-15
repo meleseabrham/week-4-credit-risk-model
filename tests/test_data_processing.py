@@ -2,8 +2,8 @@
 Tests for the enhanced data processing pipeline.
 """
 import pandas as pd
-import pytest
-from src.data_processing import preprocess_data, AggregateFeatureExtractor
+
+from src.data_processing import AggregateFeatureExtractor, preprocess_data
 
 
 def make_sample_df():
@@ -27,28 +27,23 @@ def make_sample_df():
 
 
 def test_preprocess_data_training_mode():
-    """Test preprocessing in training mode (creates target)."""
+    """Training mode should create proxy target and encoded features."""
     df = make_sample_df()
-    # Mock RiskLabelAssigner logic by ensuring we have RFM columns or handled gracefully
-    # The pipeline handles missingness/imputation, so we expect a dataframe back
-    
     processed_df = preprocess_data(df, is_training=True)
-    
+
     assert not processed_df.empty
     assert "is_high_risk" in processed_df.columns
-    assert "Amount" in processed_df.columns  # Numerical feature
-    assert "ProviderId_P2" in processed_df.columns  # OHE feature (if drop_first=True) or present
+    assert "TotalTransactionAmount" in processed_df.columns
+    assert any(col.startswith("ProviderId_") for col in processed_df.columns)
 
 
 def test_preprocess_data_inference_mode():
-    """Test preprocessing in inference mode (skips target creation)."""
+    """Inference mode skips proxy target creation."""
     df = make_sample_df()
-    
     processed_df = preprocess_data(df, is_training=False)
-    
+
     assert not processed_df.empty
     assert "is_high_risk" not in processed_df.columns
-    # Check for encoded features
     assert any(col.startswith("ProviderId_") for col in processed_df.columns)
 
 
@@ -60,26 +55,17 @@ def test_preprocess_empty_dataframe():
 
 
 def test_aggregate_feature_extractor():
-    """Test the AggregateFeatureExtractor specifically."""
+    """Aggregate extractor should compute customer-level totals."""
     df = make_sample_df()
-    extractor = AggregateFeatureExtractor(
-        group_col='CustomerId',
-        value_col='Amount',
-        time_col='TransactionStartTime'
-    )
+    extractor = AggregateFeatureExtractor()
     transformed = extractor.transform(df)
-    
-    # Check for expected columns
-    expected_cols = [
-        'TotalTransactionAmount', 
-        'AvgTransactionAmount', 
-        'Recency'
-    ]
-    for col in expected_cols:
+
+    for col in ["TotalTransactionAmount", "AvgTransactionAmount", "Recency"]:
         assert col in transformed.columns
-    
-    # Check logic: C1 has 2 transactions (100+50=150)
-    c1_total = transformed[transformed['CustomerId'] == 'C1']['TotalTransactionAmount'].iloc[0]
+
+    c1_total = transformed.loc[
+        transformed["CustomerId"] == "C1", "TotalTransactionAmount"
+    ].iloc[0]
     assert c1_total == 150.0
 
 

@@ -143,7 +143,7 @@ def predict(request: CreditRiskRequest):
     try:
         # Get transaction amount for hybrid scoring
         amount = request.Amount
-        
+
         # Calculate amount-based risk score
         if amount > 10000:
             amount_risk = 0.75
@@ -177,28 +177,35 @@ def predict(request: CreditRiskRequest):
                     'FraudResult'
                 ]
                 X = df_processed.drop(
-                    columns=[c for c in drop_cols if c in df_processed.columns],
+                    columns=[
+                        col for col in drop_cols
+                        if col in df_processed.columns
+                    ],
                     errors='ignore'
                 )
 
                 # Get model probability of high risk (class 1)
                 model_prob = model.predict_proba(X)[0, 1]
-                
-                # Combine model probability with amount-based heuristic
-                # Weight: 30% model, 70% amount (since model has limited variance)
+
+                # Combine model probability with amount-based heuristic.
                 prob = (model_prob * 0.3) + (amount_risk * 0.7)
-                
+
                 logger.info(
                     f"Hybrid prediction: model={model_prob:.4f}, "
                     f"amount_risk={amount_risk:.2f}, combined={prob:.4f}"
                 )
 
-            except Exception as e:
-                logger.warning(f"Model prediction failed, using heuristic: {e}")
+            except Exception as exc:
+                logger.warning(
+                    "Model prediction failed, falling back to heuristic: %s",
+                    exc,
+                )
                 prob = amount_risk
         else:
             # Fallback: Use only amount-based heuristic
-            logger.warning("Using amount-based prediction (model not loaded)")
+            logger.warning(
+                "Using amount-based prediction (model not loaded)"
+            )
             prob = amount_risk
 
         # Determine high risk based on combined probability

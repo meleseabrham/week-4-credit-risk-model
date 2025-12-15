@@ -108,7 +108,9 @@ We have successfully set up the project structure and performed a comprehensive 
 
 **Proxy Target Variable Engineering:**
 *   Apply **K-Means clustering** on RFM features to segment customers into risk categories
-*   Cluster interpretation: Low RFM scores → High Risk; High RFM scores → Low Risk
+*   We start with **k=3** clusters to mirror credit-grade tiers (high/medium/low risk). When a cohort has fewer than three customers, we automatically reduce *k* to the number of available samples and mark the lowest TotalTransactionAmount cluster as high risk. This keeps the proxy target stable even for very small cohorts.
+*   The high-risk label is explicitly defined as the cluster with the **lowest TotalTransactionAmount** and **frequency**, which captures disengaged or low-value users.
+*   Each clustering run logs its inertia and centers (via the debug instrumentation and MLflow runs) to provide diagnostics for stakeholders.
 *   This creates our binary/multi-class proxy target variable for credit risk
 
 **Temporal Feature Extraction:**
