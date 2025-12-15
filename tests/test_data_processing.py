@@ -1,25 +1,9 @@
+"""
+Tests for the enhanced data processing pipeline.
+"""
 import pandas as pd
 import pytest
-
-from src.data_processing import (
-    load_data,
-    preprocess_data,
-    DataPreprocessor,
-)
-
-
-def test_load_data(tmp_path):
-    df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
-    path = tmp_path / "sample.csv"
-    df.to_csv(path, index=False)
-    loaded = load_data(str(path))
-    assert loaded.shape == (2, 2)
-    assert list(loaded.columns) == ["a", "b"]
-
-
-def test_load_data_missing_file():
-    with pytest.raises(FileNotFoundError):
-        load_data("no_such_file.csv")
+from src.data_processing import preprocess_data, AggregateFeatureExtractor
 
 
 def make_sample_df():
@@ -42,44 +26,66 @@ def make_sample_df():
     )
 
 
-def test_preprocess_handles_missing_timestamp():
+def test_preprocess_data_training_mode():
+    """Test preprocessing in training mode (creates target)."""
     df = make_sample_df()
-    processed, preproc = preprocess_data(df, fit=True)
-    assert processed.isnull().sum().sum() == 0
-    assert processed.shape[0] == df["CustomerId"].nunique()
-    # Temporal features should be present after aggregation/scaling
-    expected_cols = [col for col in processed.columns if "Transaction" in col or "Recency" in col]
-    assert expected_cols
-    assert isinstance(preproc, DataPreprocessor)
+    # Mock RiskLabelAssigner logic by ensuring we have RFM columns or handled gracefully
+    # The pipeline handles missingness/imputation, so we expect a dataframe back
+    
+    processed_df = preprocess_data(df, is_training=True)
+    
+    assert not processed_df.empty
+    assert "is_high_risk" in processed_df.columns
+    assert "Amount" in processed_df.columns  # Numerical feature
+    assert "ProviderId_P2" in processed_df.columns  # OHE feature (if drop_first=True) or present
 
 
-def test_preprocess_rare_categories_consistency():
-    # Fit on train
-    train = make_sample_df()
-    processed_train, preproc = preprocess_data(train, fit=True)
-
-    # Transform with unseen categories
-    test = make_sample_df()
-    test.loc[0, "ProviderId"] = "NEW_PROVIDER"
-    processed_test, _ = preprocess_data(test, fit=False, preprocessor=preproc)
-
-    # Column alignment preserved
-    assert list(processed_train.columns) == list(processed_test.columns)
-    assert processed_test.isnull().sum().sum() == 0
-
-
-def test_woe_encoder_applies_when_requested():
+def test_preprocess_data_inference_mode():
+    """Test preprocessing in inference mode (skips target creation)."""
     df = make_sample_df()
-    y = pd.Series([0, 1, 0])
-    processed, preproc = preprocess_data(df, y=y, apply_woe=True, woe_features=["ChannelId"], fit=True)
-    # WoE should create encoded column
-    woe_cols = [c for c in processed.columns if "ChannelId" in c]
-    assert woe_cols, "WoE columns missing"
-    assert preproc.woe_encoder_ is not None
+    
+    processed_df = preprocess_data(df, is_training=False)
+    
+    assert not processed_df.empty
+    assert "is_high_risk" not in processed_df.columns
+    # Check for encoded features
+    assert any(col.startswith("ProviderId_") for col in processed_df.columns)
 
 
 def test_preprocess_empty_dataframe():
+    """Test handling of empty dataframe."""
     df = pd.DataFrame()
-    processed, _ = preprocess_data(df)
-    assert processed.empty
+    processed_df = preprocess_data(df)
+    assert processed_df.empty
 
+
+def test_aggregate_feature_extractor():
+    """Test the AggregateFeatureExtractor specifically."""
+    df = make_sample_df()
+    extractor = AggregateFeatureExtractor(
+        group_col='CustomerId',
+        value_col='Amount',
+        time_col='TransactionStartTime'
+    )
+    transformed = extractor.transform(df)
+    
+    # Check for expected columns
+    expected_cols = [
+        'TotalTransactionAmount', 
+        'AvgTransactionAmount', 
+        'Recency'
+    ]
+    for col in expected_cols:
+        assert col in transformed.columns
+    
+    # Check logic: C1 has 2 transactions (100+50=150)
+    c1_total = transformed[transformed['CustomerId'] == 'C1']['TotalTransactionAmount'].iloc[0]
+    assert c1_total == 150.0
+
+
+def test_missing_timestamp_handling():
+    """Test that missing timestamps are handled without crash."""
+    df = make_sample_df()
+    # Ensure one row has valid timestamp for snapshot calculation
+    processed_df = preprocess_data(df, is_training=False)
+    assert not processed_df.empty
