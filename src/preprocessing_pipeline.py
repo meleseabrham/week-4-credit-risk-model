@@ -7,10 +7,8 @@ consistent transformations between training and inference.
 import pandas as pd
 import logging
 import os
-import joblib
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import StandardScaler
-from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.cluster import KMeans
 

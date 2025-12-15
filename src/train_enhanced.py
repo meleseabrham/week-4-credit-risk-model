@@ -14,8 +14,7 @@ import os
 import joblib
 from sklearn.model_selection import (
     train_test_split,
-    GridSearchCV,
-    cross_val_score
+    GridSearchCV
 )
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
@@ -24,8 +23,7 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
     f1_score,
-    roc_auc_score,
-    classification_report
+    roc_auc_score
 )
 from src.data_processing import load_data, preprocess_data
 
@@ -163,7 +161,7 @@ def train_models(data_path):
             cv_results = clf.cv_results_
             for i in range(len(cv_results['mean_test_score'])):
                 mlflow.log_metric(
-                    f"cv_fold_f1_mean",
+                    "cv_fold_f1_mean",
                     cv_results['mean_test_score'][i]
                 )
 
