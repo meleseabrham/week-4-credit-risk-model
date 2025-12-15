@@ -12,8 +12,12 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 from src.data_processing import load_data, preprocess_data
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
+
 
 def eval_metrics(actual, pred):
     accuracy = accuracy_score(actual, pred)
@@ -25,6 +29,7 @@ def eval_metrics(actual, pred):
     except ValueError:
         roc_auc = 0
     return accuracy, precision, recall, f1, roc_auc
+
 
 def train_models(data_path):
     logger.info("Loading and processing data...")
@@ -141,9 +146,9 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         data_path = sys.argv[1]
     else:
-        # Default path relative to project root (assuming run from project root)
+        # Default path relative to project root
         data_path = "data/raw/data.csv"
-    
+
     if os.path.exists(data_path):
         train_models(data_path)
     else:
@@ -152,4 +157,6 @@ if __name__ == "__main__":
         if os.path.exists(abs_path):
             train_models(abs_path)
         else:
-            logger.warning(f"Data file not found at {data_path} or {abs_path}.")
+            logger.warning(
+                f"Data file not found at {data_path} or {abs_path}."
+            )

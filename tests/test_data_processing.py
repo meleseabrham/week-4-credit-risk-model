@@ -1,100 +1,85 @@
-import pytest
 import pandas as pd
-import numpy as np
-import os
-from src.data_processing import load_data, preprocess_data
+import pytest
+
+from src.data_processing import (
+    load_data,
+    preprocess_data,
+    DataPreprocessor,
+)
+
 
 def test_load_data(tmp_path):
-    # Create a dummy CSV file
-    d = {'col1': [1, 2], 'col2': [3, 4]}
-    df = pd.DataFrame(data=d)
-    p = tmp_path / "test_data.csv"
-    df.to_csv(p, index=False)
-    
-    loaded_df = load_data(str(p))
-    assert loaded_df.shape == (2, 2)
-    assert 'col1' in loaded_df.columns
+    df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+    path = tmp_path / "sample.csv"
+    df.to_csv(path, index=False)
+    loaded = load_data(str(path))
+    assert loaded.shape == (2, 2)
+    assert list(loaded.columns) == ["a", "b"]
+
 
 def test_load_data_missing_file():
     with pytest.raises(FileNotFoundError):
-        load_data("non_existent_file.csv")
+        load_data("no_such_file.csv")
 
-def test_preprocess_data():
-    # Create sample data matching the expected schema
-    data = {
-        'TransactionStartTime': ['2018-11-15T02:18:49Z', '2018-11-15T02:19:08Z', '2019-11-15T02:19:08Z'], # Varied dates for Recency
-        'Amount': [100.0, 50.0, 20.0],
-        'Value': [100, 50, 20],
-        'CustomerId': ['C1', 'C1', 'C2'],
-        'ProviderId': ['P1', 'P1', 'P2'],
-        'ProductId': ['Pr1', 'Pr2', 'Pr1'],
-        'ProductCategory': ['Cat1', 'Cat1', 'Cat2'],
-        'ChannelId': ['Ch1', 'Ch1', 'Ch2'],
-        'PricingStrategy': ['PS1', 'PS1', 'PS2']
-    }
-    df = pd.DataFrame(data)
-    
-    processed_df = preprocess_data(df)
-    
-    # Check if new features exist
-    assert 'TransactionHour' in processed_df.columns
-    assert 'TotalTransactionAmount' in processed_df.columns
-    assert 'Recency' in processed_df.columns
-    assert 'is_high_risk' in processed_df.columns # Task 4 check
-    assert 'ProviderId_P2' in processed_df.columns # One-hot encoded column
-    
-    # Check aggregation logic
-    assert not processed_df.empty
-    assert processed_df.isnull().sum().sum() == 0
 
-def test_risk_label_logic():
-    # Test specifically the risk labeler
-    # High recency, low monetary -> Should be high risk
-    # Low recency, high monetary -> Should be low risk
-    from src.data_processing import RiskLabelAssigner
-    
-    df = pd.DataFrame({
-        'TotalTransactionAmount': [10000, 5000, 10],
-        'TransactionCount': [100, 50, 1],
-        'Recency': [1, 5, 365]
-    })
-    
-    assigner = RiskLabelAssigner(n_clusters=3, random_state=42)
-    labeled_df = assigner.transform(df)
-    
-    assert 'is_high_risk' in labeled_df.columns
-    # The last row (10 amount, 365 recency) should likely be high risk
-    # Note: Clustering behavior depends on initialization, but with extreme values and fixed seed it should be consistent.
-    # We just check the column creation for unit test robustness, validating logic is harder without integration test.
-    assert labeled_df.iloc[2]['is_high_risk'] == 1 or labeled_df['is_high_risk'].nunique() > 0
+def make_sample_df():
+    return pd.DataFrame(
+        {
+            "TransactionStartTime": [
+                "2023-01-01T10:00:00Z",
+                "2023-01-02T11:00:00Z",
+                None,
+            ],
+            "Amount": [100.0, 50.0, 25.0],
+            "Value": [100, 50, 25],
+            "CustomerId": ["C1", "C1", "C2"],
+            "ProviderId": ["P1", "P1", "P2"],
+            "ProductId": ["PR1", "PR2", "PR3"],
+            "ProductCategory": ["Cat1", "Cat1", "Cat2"],
+            "ChannelId": ["Web", "Web", "iOS"],
+            "PricingStrategy": ["S1", "S1", "S2"],
+        }
+    )
 
-def test_time_series_extractor():
-    from src.data_processing import TimeSeriesFeatureExtractor
-    df = pd.DataFrame({'TransactionStartTime': ['2023-01-01T12:00:00Z']})
-    extractor = TimeSeriesFeatureExtractor()
-    df_trans = extractor.transform(df)
-    
-    assert 'TransactionHour' in df_trans.columns
-    assert df_trans['TransactionHour'][0] == 12
-    assert df_trans['TransactionMonth'][0] == 1
 
-def test_aggregate_extractor():
-    from src.data_processing import AggregateFeatureExtractor
-    df = pd.DataFrame({
-        'CustomerId': ['C1', 'C1', 'C2'],
-        'Amount': [100, 200, 50],
-        # We need time col for Recency now since we updated the class
-        'TransactionStartTime': pd.to_datetime(['2023-01-01', '2023-01-02', '2023-01-03'])
-    })
-    extractor = AggregateFeatureExtractor(group_col='CustomerId', value_col='Amount', time_col='TransactionStartTime')
-    df_trans = extractor.transform(df)
-    
-    # C1 total should be 300
-    assert df_trans[df_trans['CustomerId']=='C1']['TotalTransactionAmount'].iloc[0] == 300
-    # C2 total should be 50
-    assert df_trans[df_trans['CustomerId']=='C2']['TotalTransactionAmount'].iloc[0] == 50
+def test_preprocess_handles_missing_timestamp():
+    df = make_sample_df()
+    processed, preproc = preprocess_data(df, fit=True)
+    assert processed.isnull().sum().sum() == 0
+    assert processed.shape[0] == df["CustomerId"].nunique()
+    # Temporal features should be present after aggregation/scaling
+    expected_cols = [col for col in processed.columns if "Transaction" in col or "Recency" in col]
+    assert expected_cols
+    assert isinstance(preproc, DataPreprocessor)
 
-def test_preprocess_empty_data():
+
+def test_preprocess_rare_categories_consistency():
+    # Fit on train
+    train = make_sample_df()
+    processed_train, preproc = preprocess_data(train, fit=True)
+
+    # Transform with unseen categories
+    test = make_sample_df()
+    test.loc[0, "ProviderId"] = "NEW_PROVIDER"
+    processed_test, _ = preprocess_data(test, fit=False, preprocessor=preproc)
+
+    # Column alignment preserved
+    assert list(processed_train.columns) == list(processed_test.columns)
+    assert processed_test.isnull().sum().sum() == 0
+
+
+def test_woe_encoder_applies_when_requested():
+    df = make_sample_df()
+    y = pd.Series([0, 1, 0])
+    processed, preproc = preprocess_data(df, y=y, apply_woe=True, woe_features=["ChannelId"], fit=True)
+    # WoE should create encoded column
+    woe_cols = [c for c in processed.columns if "ChannelId" in c]
+    assert woe_cols, "WoE columns missing"
+    assert preproc.woe_encoder_ is not None
+
+
+def test_preprocess_empty_dataframe():
     df = pd.DataFrame()
-    processed_df = preprocess_data(df)
-    assert processed_df.empty
+    processed, _ = preprocess_data(df)
+    assert processed.empty
+

@@ -10,7 +10,7 @@ mlflow
 flake8
 streamlit
 requests
-
-
-
-
+joblib
+pytest
+pytest-asyncio
+httpx  # Required for TestClient
