@@ -2,8 +2,11 @@ import streamlit as st
 import requests
 import datetime
 
+import os
+
 # Define API URL
-API_URL = "http://api:8000/predict"  # Using docker service name "api"
+# Default to "http://api:8000/predict" for Docker, fallback to localhost for local run
+API_URL = os.getenv("API_URL", "http://api:8000/predict")
 
 st.set_page_config(
     page_title="Credit Risk Scoring",
@@ -96,6 +99,6 @@ if submit_button:
 
         except requests.exceptions.ConnectionError:
             st.error(
-                "Failed to connect to the scoring API. "
+                f"Failed to connect to the scoring API at `{API_URL}`. "
                 "Ensure the API service is running."
             )

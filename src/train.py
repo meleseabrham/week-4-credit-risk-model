@@ -93,7 +93,8 @@ def train_models(data_path):
         'SubscriptionId',
         'AccountId',
         'CurrencyCode',
-        'CountryCode'
+        'CountryCode',
+        'FraudResult'
     ]
 
     # Filter features

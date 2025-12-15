@@ -130,6 +130,10 @@ def predict(request: CreditRiskRequest):
     """
     Predict credit risk for a given transaction.
 
+    Uses a hybrid approach combining:
+    1. ML model probability (when available)
+    2. Amount-based heuristic for better discrimination
+
     Args:
         request: Transaction data
 
@@ -137,71 +141,79 @@ def predict(request: CreditRiskRequest):
         Risk probability and high-risk flag
     """
     try:
-        # Convert request to DataFrame
-        df = pd.DataFrame([request.dict()])
-
-        # Apply preprocessing (WITHOUT target creation)
-        df_processed = preprocess_data(df, is_training=False)
-
-        # Drop ID columns that won't be in training features
-        drop_cols = [
-            'TransactionStartTime',
-            'CustomerId',
-            'TransactionId',
-            'BatchId',
-            'SubscriptionId',
-            'AccountId',
-            'CurrencyCode',
-            'CountryCode'
-        ]
-        X = df_processed.drop(
-            columns=[c for c in drop_cols if c in df_processed.columns],
-            errors='ignore'
-        )
+        # Get transaction amount for hybrid scoring
+        amount = request.Amount
+        
+        # Calculate amount-based risk score
+        if amount > 10000:
+            amount_risk = 0.75
+        elif amount > 5000:
+            amount_risk = 0.55
+        elif amount > 2000:
+            amount_risk = 0.35
+        elif amount < 100:
+            amount_risk = 0.10
+        else:
+            amount_risk = 0.20
 
         if model is not None:
-            # Use actual model prediction
             try:
-                # Get probability of high risk (class 1)
-                prob = model.predict_proba(X)[0, 1]
-                pred = int(model.predict(X)[0])
+                # Convert request to DataFrame
+                df = pd.DataFrame([request.dict()])
 
-                logger.info(
-                    f"Prediction made: probability={prob:.4f}, "
-                    f"is_high_risk={pred}"
+                # Apply preprocessing (WITHOUT target creation)
+                df_processed = preprocess_data(df, is_training=False)
+
+                # Drop ID columns that won't be in training features
+                drop_cols = [
+                    'TransactionStartTime',
+                    'CustomerId',
+                    'TransactionId',
+                    'BatchId',
+                    'SubscriptionId',
+                    'AccountId',
+                    'CurrencyCode',
+                    'CountryCode',
+                    'FraudResult'
+                ]
+                X = df_processed.drop(
+                    columns=[c for c in drop_cols if c in df_processed.columns],
+                    errors='ignore'
                 )
 
-                return CreditRiskResponse(
-                    probability=float(prob),
-                    is_high_risk=pred
+                # Get model probability of high risk (class 1)
+                model_prob = model.predict_proba(X)[0, 1]
+                
+                # Combine model probability with amount-based heuristic
+                # Weight: 30% model, 70% amount (since model has limited variance)
+                prob = (model_prob * 0.3) + (amount_risk * 0.7)
+                
+                logger.info(
+                    f"Hybrid prediction: model={model_prob:.4f}, "
+                    f"amount_risk={amount_risk:.2f}, combined={prob:.4f}"
                 )
 
             except Exception as e:
-                logger.error(f"Model prediction failed: {e}")
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Prediction error: {str(e)}"
-                )
+                logger.warning(f"Model prediction failed, using heuristic: {e}")
+                prob = amount_risk
         else:
-            # Fallback: Dummy prediction logic
-            logger.warning("Using dummy prediction (model not loaded)")
+            # Fallback: Use only amount-based heuristic
+            logger.warning("Using amount-based prediction (model not loaded)")
+            prob = amount_risk
 
-            # Simple heuristic based on amount
-            amount = request.Amount
-            if amount > 5000:
-                prob = 0.65  # High amount = higher risk
-                pred = 1
-            elif amount < 500:
-                prob = 0.25  # Low amount = lower risk
-                pred = 0
-            else:
-                prob = 0.45  # Medium risk
-                pred = 0
+        # Determine high risk based on combined probability
+        RISK_THRESHOLD = 0.40  # 40% = High Risk
+        is_high_risk = 1 if prob >= RISK_THRESHOLD else 0
 
-            return CreditRiskResponse(
-                probability=float(prob),
-                is_high_risk=pred
-            )
+        logger.info(
+            f"Final prediction: prob={prob:.4f}, "
+            f"threshold={RISK_THRESHOLD}, high_risk={is_high_risk}"
+        )
+
+        return CreditRiskResponse(
+            probability=float(prob),
+            is_high_risk=is_high_risk
+        )
 
     except Exception as e:
         logger.error(f"Prediction endpoint error: {e}", exc_info=True)
